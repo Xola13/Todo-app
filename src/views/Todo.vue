@@ -61,25 +61,15 @@
     name: 'Home',
     data() {
       return {
+        STORAGE_KEY: 'todo-app-storage',
         newTaskTitle: '',
-        tasks: [
-          // {
-          //   id: 1,
-          //   title: 'Wake up',
-          //   done: 'false'
-          // },
-          // {
-          //   id: 2,
-          //   title: 'Shower',
-          //   done: 'false'
-          // },
-          // {
-          //   id: 3,
-          //   title: 'Clean',
-          //   done: 'false'
-          // },
-        ]
+        tasks: [],
+        newTask: ''
       }
+    },
+    created() {
+      this.tasks = JSON.parse(localStorage.getItem(this.STORAGE_KEY) || '[]')
+      console.log(this.tasks)
     },
     methods: {
        addTask() {
@@ -90,14 +80,17 @@
        }
        this.tasks.push(newTask)
        this.newTaskTitle = ''
+       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.tasks));
        },
 
       doneTask(id) {
         let task = this.tasks.filter(task => task.id === id)[0]
         task.done = !task.done
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.tasks))
       },
       deleteTask(id) {
         this.tasks = this.tasks.filter(task => task.id !== id)
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.tasks))
       }
     }
   }

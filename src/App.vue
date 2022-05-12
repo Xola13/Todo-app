@@ -55,7 +55,7 @@
 
       <v-app-bar-nav-icon @click="drawer = !drawer"></v-app-bar-nav-icon>
 
-      <v-app-bar-title>Tasks</v-app-bar-title>
+      <v-app-bar-title style="color: white">Tasks</v-app-bar-title>
 
       <v-spacer></v-spacer>
 
