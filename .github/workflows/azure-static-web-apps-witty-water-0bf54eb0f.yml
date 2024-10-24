@@ -31,8 +31,16 @@ jobs:
           app_location: "/" # App source code path
           api_location: "" # Api source code path - optional
           output_location: "dist" # Built app content directory - optional
-          ###### End of Repository/Build Configurations ######
-
+            ###### End of Repository/Build Configurations ######
+            
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.22.0
+        with:
+          slack-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          channel: '#your-channel-name'
+          text: 'Build or Deployment failed! Check the logs for details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+      
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
