@@ -78,11 +78,14 @@ export default new Vuex.Store({
     groqApiKey: persisted.groqApiKey || process.env.VUE_APP_GROQ_API_KEY || '',
     groqModel:
       persisted.groqModel || process.env.VUE_APP_GROQ_MODEL || 'openai/gpt-oss-20b',
-    notifications: persisted.notifications || false
+    notifications: persisted.notifications || false,
+    // When true (set VUE_APP_AI_PROXY=true on the host), the app routes AI calls
+    // through the /api/groq serverless proxy, so no client key is needed.
+    aiProxy: process.env.VUE_APP_AI_PROXY === 'true'
   },
 
   getters: {
-    aiReady: state => !!state.groqApiKey,
+    aiReady: state => !!state.groqApiKey || state.aiProxy,
 
     allTags(state) {
       const set = new Set()

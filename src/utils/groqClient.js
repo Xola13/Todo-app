@@ -8,6 +8,7 @@
 // `endpoint` below would change.
 
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
+const PROXY_ENDPOINT = '/api/groq'
 
 export async function groqChat({
   apiKey,
@@ -17,7 +18,10 @@ export async function groqChat({
   json = false,
   signal
 }) {
-  if (!apiKey) throw new Error('No Groq API key set. Add one in Settings.')
+  // With a key (local dev / user-supplied) call Groq directly. Without one,
+  // fall back to the server-side proxy, which injects the key. This is what
+  // lets the deployed site work without exposing a key in the browser.
+  const useProxy = !apiKey
 
   const body = {
     model,
@@ -26,21 +30,23 @@ export async function groqChat({
   }
   if (json) body.response_format = { type: 'json_object' }
 
+  const headers = { 'Content-Type': 'application/json' }
+  if (!useProxy) headers.Authorization = `Bearer ${apiKey}`
+
   let res
   try {
-    res = await fetch(GROQ_ENDPOINT, {
+    res = await fetch(useProxy ? PROXY_ENDPOINT : GROQ_ENDPOINT, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
-      },
+      headers,
       body: JSON.stringify(body),
       signal
     })
   } catch (e) {
     // Network/CORS failures land here.
     throw new Error(
-      'Could not reach Groq. Check your connection (or CORS if self-hosting a proxy).'
+      useProxy
+        ? 'Could not reach the AI proxy. Is the Netlify function deployed?'
+        : 'Could not reach Groq. Check your connection.'
     )
   }
 

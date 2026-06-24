@@ -1,0 +1,12 @@
+# Netlify build + serverless config
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# Front-end calls /api/groq; route it to the serverless function.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
