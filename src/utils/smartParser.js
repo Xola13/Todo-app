@@ -54,6 +54,60 @@ function extractTime(text) {
   return null
 }
 
+// Find a recurrence phrase. Returns { recurrence, matched } or null.
+// recurrence: { type: 'daily'|'weekly'|'weekdays'|'monthly', interval, weekday? }
+function extractRecurrence(text) {
+  const lower = text.toLowerCase()
+
+  // every <weekday>  -> weekly on that day
+  for (let i = 0; i < WEEKDAYS.length; i++) {
+    const m = lower.match(new RegExp('\\bevery\\s+' + WEEKDAYS[i] + '\\b'))
+    if (m) return { recurrence: { type: 'weekly', interval: 1, weekday: i }, matched: m[0] }
+  }
+
+  // every weekday / weekdays
+  let m = lower.match(/\bevery\s+weekday\b|\bweekdays\b/)
+  if (m) return { recurrence: { type: 'weekdays', interval: 1 }, matched: m[0] }
+
+  // every N days/weeks/months  (N optional)
+  m = lower.match(/\bevery\s+(\d+)?\s*(day|days|week|weeks|month|months)\b/)
+  if (m) {
+    const interval = m[1] ? parseInt(m[1], 10) : 1
+    const unit = m[2].startsWith('week')
+      ? 'weekly'
+      : m[2].startsWith('month')
+      ? 'monthly'
+      : 'daily'
+    return { recurrence: { type: unit, interval }, matched: m[0] }
+  }
+
+  // single-word forms
+  m = lower.match(/\b(daily|everyday|weekly|monthly)\b/)
+  if (m) {
+    const map = { daily: 'daily', everyday: 'daily', weekly: 'weekly', monthly: 'monthly' }
+    return { recurrence: { type: map[m[1]], interval: 1 }, matched: m[0] }
+  }
+
+  return null
+}
+
+// Given a recurrence with no explicit date, pick the first due date.
+function defaultDueFor(recurrence) {
+  if (recurrence.weekday != null) return nextWeekday(recurrence.weekday)
+  const d = startOfDay(new Date())
+  if (recurrence.type === 'weekdays') {
+    do {
+      d.setDate(d.getDate() + 1)
+    } while (d.getDay() === 0 || d.getDay() === 6)
+  } else if (recurrence.type === 'weekly') {
+    d.setDate(d.getDate() + 7)
+  } else if (recurrence.type === 'monthly') {
+    d.setMonth(d.getMonth() + 1)
+  }
+  // daily -> today (d unchanged)
+  return d
+}
+
 // Find a relative/absolute date phrase. Returns { date, matched } or null.
 function extractDate(text) {
   const lower = text.toLowerCase()
@@ -102,6 +156,15 @@ export function parseSmartInput(raw) {
 
   let priority = 'none'
   const tags = []
+  let recurrence = null
+
+  // --- recurrence (strip before date parsing so "every monday" wins) ---
+  const recHit = extractRecurrence(text)
+  if (recHit) {
+    recurrence = recHit.recurrence
+    const idx = text.toLowerCase().indexOf(recHit.matched)
+    if (idx !== -1) text = text.slice(0, idx) + text.slice(idx + recHit.matched.length)
+  }
 
   // --- tags: #word ---
   text = text.replace(/#([\p{L}\p{N}_-]+)/gu, (_, tag) => {
@@ -132,25 +195,59 @@ export function parseSmartInput(raw) {
   }
 
   // --- due date + time ---
-  let due = null
+  // Find the time up front so it applies whether the date comes from an
+  // explicit phrase ("tomorrow") or from a recurrence default ("every weekday").
+  const timeHit = extractTime(text)
+
+  let dueDate = null
   const dateHit = extractDate(text)
   if (dateHit) {
-    const date = dateHit.date
-    const timeHit = extractTime(text)
-    if (timeHit) {
-      date.setHours(timeHit.hours, timeHit.minutes, 0, 0)
-      text = text.replace(timeHit.matched, '')
-    }
-    due = date.toISOString()
-    // strip the matched date phrase (case-insensitive)
+    dueDate = dateHit.date
     const idx = text.toLowerCase().indexOf(dateHit.matched)
     if (idx !== -1) {
       text = text.slice(0, idx) + text.slice(idx + dateHit.matched.length)
     }
+  } else if (recurrence) {
+    dueDate = defaultDueFor(recurrence)
+  }
+
+  let due = null
+  if (dueDate) {
+    if (timeHit) {
+      dueDate.setHours(timeHit.hours, timeHit.minutes, 0, 0)
+      text = text.replace(timeHit.matched, '')
+    }
+    due = dueDate.toISOString()
   }
 
   // tidy leftover title
   const title = text.replace(/\s{2,}/g, ' ').replace(/\s+([.,])/g, '$1').trim()
 
-  return { title, priority, tags, due }
+  return { title, priority, tags, due, recurrence }
+}
+
+// Advance a due date to the next occurrence for a recurrence rule.
+export function nextOccurrence(iso, recurrence) {
+  if (!recurrence) return null
+  const d = iso ? new Date(iso) : new Date()
+  const interval = recurrence.interval || 1
+  switch (recurrence.type) {
+    case 'daily':
+      d.setDate(d.getDate() + interval)
+      break
+    case 'weekly':
+      d.setDate(d.getDate() + 7 * interval)
+      break
+    case 'monthly':
+      d.setMonth(d.getMonth() + interval)
+      break
+    case 'weekdays':
+      do {
+        d.setDate(d.getDate() + 1)
+      } while (d.getDay() === 0 || d.getDay() === 6)
+      break
+    default:
+      return null
+  }
+  return d.toISOString()
 }

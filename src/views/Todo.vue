@@ -151,7 +151,7 @@
                   {{ task.title }}
                 </v-list-item-title>
                 <v-list-item-subtitle
-                  v-if="task.tags.length || task.due || task.priority !== 'none'"
+                  v-if="hasMeta(task)"
                   class="mt-1 d-flex flex-wrap align-center"
                   style="gap:4px"
                 >
@@ -169,6 +169,18 @@
                   >
                     <v-icon left x-small>mdi-calendar-clock</v-icon>{{ formatDue(task.due) }}
                   </v-chip>
+                  <v-chip v-if="task.recurrence" x-small outlined color="secondary">
+                    <v-icon left x-small>mdi-repeat</v-icon>{{ recurrenceLabel(task.recurrence) }}
+                  </v-chip>
+                  <v-chip
+                    v-if="task.subtasks.length"
+                    x-small
+                    outlined
+                    @click.stop="toggleExpand(task.id)"
+                  >
+                    <v-icon left x-small>mdi-format-list-checks</v-icon>
+                    {{ subtaskProgress(task) }}
+                  </v-chip>
                   <v-chip v-for="t in task.tags" :key="t" x-small outlined>#{{ t }}</v-chip>
                 </v-list-item-subtitle>
               </v-list-item-content>
@@ -182,6 +194,43 @@
                 </v-btn>
               </v-list-item-action>
             </v-list-item>
+
+            <!-- Subtasks (expandable) -->
+            <v-expand-transition :key="'sx' + task.id">
+              <div v-if="expanded.includes(task.id)" class="px-6 pb-2 grey--text">
+                <div
+                  v-for="sub in task.subtasks"
+                  :key="sub.id"
+                  class="d-flex align-center"
+                >
+                  <v-checkbox
+                    :input-value="sub.done"
+                    dense
+                    hide-details
+                    class="mt-0 pt-0"
+                    @change="toggleSubtask(task.id, sub.id)"
+                  ></v-checkbox>
+                  <span
+                    class="body-2"
+                    :class="{ 'text-decoration-line-through text--disabled': sub.done }"
+                  >{{ sub.title }}</span>
+                  <v-spacer></v-spacer>
+                  <v-btn icon x-small @click="deleteSubtask(task.id, sub.id)">
+                    <v-icon x-small>mdi-close</v-icon>
+                  </v-btn>
+                </div>
+                <v-text-field
+                  v-model="newSubtask[task.id]"
+                  @keyup.enter="addSubtask(task.id)"
+                  placeholder="Add subtask…"
+                  dense
+                  hide-details
+                  prepend-inner-icon="mdi-plus"
+                  class="mt-1"
+                ></v-text-field>
+              </div>
+            </v-expand-transition>
+
             <v-divider v-if="i < visibleTasks.length - 1" :key="'d' + task.id"></v-divider>
           </template>
         </template>
@@ -249,6 +298,14 @@
               @input="onPickDate"
             ></v-date-picker>
           </v-menu>
+          <v-select
+            v-model="editing.recurrenceType"
+            :items="recurrenceItems"
+            label="Repeat"
+            prepend-inner-icon="mdi-repeat"
+            outlined
+            dense
+          ></v-select>
           <v-textarea v-model="editing.notes" label="Notes" outlined dense rows="2"></v-textarea>
         </v-card-text>
         <v-card-actions>
@@ -266,15 +323,41 @@
         <v-btn text color="primary" v-bind="attrs" @click="undoDelete">Undo</v-btn>
       </template>
     </v-snackbar>
+
+    <!-- AI applied snackbar -->
+    <v-snackbar v-model="aiSnackbar" :timeout="4000" color="success">
+      {{ aiSnackbarText }}
+    </v-snackbar>
+
+    <!-- AI Assistant -->
+    <v-btn
+      fab
+      fixed
+      bottom
+      right
+      color="primary"
+      @click="aiDialog = true"
+      aria-label="Open AI assistant"
+    >
+      <v-icon>mdi-robot-happy</v-icon>
+    </v-btn>
+
+    <ai-assistant
+      v-model="aiDialog"
+      @applied="onAiApplied"
+      @open-settings="$root.$emit('open-settings')"
+    ></ai-assistant>
   </div>
 </template>
 
 <script>
 import { mapGetters, mapState } from 'vuex'
 import { parseSmartInput } from '../utils/smartParser'
+import AiAssistant from '../components/AiAssistant.vue'
 
 export default {
   name: 'Todo',
+  components: { AiAssistant },
   data() {
     return {
       newTaskTitle: '',
@@ -283,6 +366,11 @@ export default {
       dateMenu: false,
       snackbar: false,
       lastDeleted: null,
+      expanded: [],
+      newSubtask: {},
+      aiDialog: false,
+      aiSnackbar: false,
+      aiSnackbarText: '',
       sortOptions: [
         { value: 'smart', label: 'Smart' },
         { value: 'created', label: 'Newest' },
@@ -295,6 +383,13 @@ export default {
         { text: 'Low', value: 'low' },
         { text: 'Medium', value: 'medium' },
         { text: 'High', value: 'high' }
+      ],
+      recurrenceItems: [
+        { text: 'Never', value: 'none' },
+        { text: 'Daily', value: 'daily' },
+        { text: 'Weekdays', value: 'weekdays' },
+        { text: 'Weekly', value: 'weekly' },
+        { text: 'Monthly', value: 'monthly' }
       ]
     }
   },
@@ -345,7 +440,8 @@ export default {
         priority: task.priority,
         tags: [...task.tags],
         due: task.due,
-        notes: task.notes
+        notes: task.notes,
+        recurrenceType: task.recurrence ? task.recurrence.type : 'none'
       }
       this.editDialog = true
     },
@@ -359,10 +455,57 @@ export default {
       this.dateMenu = false
     },
     saveEdit() {
-      const { id, ...changes } = this.editing
+      const { id, recurrenceType, ...changes } = this.editing
       changes.tags = changes.tags.map(t => String(t).replace(/^#/, '').toLowerCase())
+      changes.recurrence =
+        recurrenceType && recurrenceType !== 'none'
+          ? { type: recurrenceType, interval: 1 }
+          : null
       this.$store.dispatch('updateTask', { id, changes })
       this.editDialog = false
+    },
+    // --- subtasks ---
+    hasMeta(task) {
+      return (
+        task.tags.length ||
+        task.due ||
+        task.priority !== 'none' ||
+        task.recurrence ||
+        task.subtasks.length
+      )
+    },
+    toggleExpand(id) {
+      const i = this.expanded.indexOf(id)
+      if (i === -1) this.expanded.push(id)
+      else this.expanded.splice(i, 1)
+    },
+    addSubtask(id) {
+      const title = (this.newSubtask[id] || '').trim()
+      if (!title) return
+      this.$store.commit('ADD_SUBTASK', { id, title })
+      this.$set(this.newSubtask, id, '')
+    },
+    toggleSubtask(id, subId) {
+      this.$store.commit('TOGGLE_SUBTASK', { id, subId })
+    },
+    deleteSubtask(id, subId) {
+      this.$store.commit('DELETE_SUBTASK', { id, subId })
+    },
+    subtaskProgress(task) {
+      const done = task.subtasks.filter(s => s.done).length
+      return `${done}/${task.subtasks.length}`
+    },
+    recurrenceLabel(r) {
+      if (!r) return ''
+      const base = { daily: 'Daily', weekly: 'Weekly', weekdays: 'Weekdays', monthly: 'Monthly' }[r.type] || 'Repeats'
+      return r.interval > 1 ? `Every ${r.interval}` : base
+    },
+    // --- AI ---
+    onAiApplied(summary) {
+      this.aiSnackbarText = (summary && summary.length)
+        ? summary.join(' · ')
+        : 'Changes applied'
+      this.aiSnackbar = true
     },
     setFilter(v) {
       if (v) this.$store.commit('SET_FILTER', v)

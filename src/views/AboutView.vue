@@ -41,13 +41,17 @@ export default {
       { code: '#work  #home  #shopping', desc: 'Add one or more tags' },
       { code: 'today / tomorrow / friday', desc: 'Relative due dates' },
       { code: 'in 3 days / in 2 weeks', desc: 'Offset due dates' },
-      { code: '9am / 5:30pm / 17:00', desc: 'Add a time to the due date' }
+      { code: '9am / 5:30pm / 17:00', desc: 'Add a time to the due date' },
+      { code: 'every day / every monday / weekly', desc: 'Recurring tasks that roll forward' }
     ],
     features: [
+      'AI assistant (Groq)',
       'Natural-language parsing',
+      'Recurring tasks',
+      'Subtasks',
       'Priorities',
       'Tags',
-      'Due dates & reminders',
+      'Due dates & browser reminders',
       'Overdue detection',
       'Smart sorting',
       'Search & filters',
